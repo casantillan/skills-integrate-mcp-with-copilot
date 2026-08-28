@@ -1,0 +1,10 @@
+{
+  "teacher": {
+    "role": "teacher",
+    "password_hash": "pbkdf2_sha256$120000$e8634ddd66855d4c2fc67320ea9e3a25$2db60ac467b388a93f06a2bfcb669d0dd8234c5aafeed8fb67fe3f723e6254f8"
+  },
+  "michael@mergington.edu": {
+    "role": "student",
+    "password_hash": "pbkdf2_sha256$120000$ea03bccd136a640138ea8b54aedb33e8$9361d4cde6a84169d0ba785a147749109f29cb808d305859327e8e3da5b36451"
+  }
+}

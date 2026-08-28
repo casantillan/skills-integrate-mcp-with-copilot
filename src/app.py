@@ -5,14 +5,64 @@ A super simple FastAPI application that allows students to view and sign up
 for extracurricular activities at Mergington High School.
 """
 
-from fastapi import FastAPI, HTTPException
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse
+import hashlib
+import hmac
+import json
 import os
 from pathlib import Path
 
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
+
 app = FastAPI(title="Mergington High School API",
               description="API for viewing and signing up for extracurricular activities")
+
+security = HTTPBasic(auto_error=False)
+users_file = Path(__file__).parent / "users.json"
+
+
+def load_users():
+    with users_file.open(encoding="utf-8") as file:
+        return json.load(file)
+
+
+def verify_password(password, password_hash):
+    scheme, iterations, salt, expected_digest = password_hash.split("$")
+    if scheme != "pbkdf2_sha256":
+        return False
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode(),
+        bytes.fromhex(salt),
+        int(iterations),
+    ).hex()
+    return hmac.compare_digest(digest, expected_digest)
+
+
+def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    user = load_users().get(credentials.username)
+    if user is None or not verify_password(credentials.password, user["password_hash"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return {"username": credentials.username, "role": user["role"]}
+
+
+def can_manage_registration(user, email):
+    return user["role"] == "teacher" or (
+        user["role"] == "student" and user["username"] == email
+    )
 
 # Mount the static files directory
 current_dir = Path(__file__).parent
@@ -89,8 +139,18 @@ def get_activities():
 
 
 @app.post("/activities/{activity_name}/signup")
-def signup_for_activity(activity_name: str, email: str):
+def signup_for_activity(
+    activity_name: str,
+    email: str,
+    user=Depends(get_current_user),
+):
     """Sign up a student for an activity"""
+    if not can_manage_registration(user, email):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Students can only manage their own registrations",
+        )
+
     # Validate activity exists
     if activity_name not in activities:
         raise HTTPException(status_code=404, detail="Activity not found")
@@ -111,8 +171,18 @@ def signup_for_activity(activity_name: str, email: str):
 
 
 @app.delete("/activities/{activity_name}/unregister")
-def unregister_from_activity(activity_name: str, email: str):
+def unregister_from_activity(
+    activity_name: str,
+    email: str,
+    user=Depends(get_current_user),
+):
     """Unregister a student from an activity"""
+    if not can_manage_registration(user, email):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Students can only manage their own registrations",
+        )
+
     # Validate activity exists
     if activity_name not in activities:
         raise HTTPException(status_code=404, detail="Activity not found")
